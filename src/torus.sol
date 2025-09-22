@@ -18,12 +18,10 @@ contract Torus {
         _;
     }
 
-
     function addLiquidity(address token, uint256 amount) public validateToken(token) {
         liquidity[token] += amount;
         minSurpassed[token] = liquidity[token] > minLiquidity;
         // recalculate a
-
     }
 
     function removeLiquidity(address token, uint256 amount) public validateToken(token) {
@@ -31,12 +29,10 @@ contract Torus {
         liquidity[token] -= amount;
         // recalculate a
         // a[token] = calculateA(token);
-
     }
 
     function addToken(address token) public {
         require(token != address(0), "Invalid token address");
         supportedTokens[token] = true;
     }
-
 }
