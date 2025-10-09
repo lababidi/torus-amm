@@ -11,9 +11,13 @@ contract Torus {
     uint256 minLiq = 1e6;
     uint256 fee;
     address[] public tokens;
+    uint16[] public order;
+    mapping(uint16 => uint16) public pos; // position of token in order array
     mapping(address => uint256) public liquidity;
     mapping(address => uint256) public minLiquidity;
     mapping(address => uint16) public decimals;
+    mapping(address => uint256) public liquidityNorm;
+    mapping(address => uint256) public tokenPos; // position of token in tokens array
     mapping(address => uint256) public reserves;
     mapping(address => uint256) public a;
     mapping(address => uint256) public w;
@@ -28,7 +32,7 @@ contract Torus {
         _;
     }
 
-        modifier liquidToken(address token) {
+    modifier liquidToken(address token) {
         require(token != address(0), "Invalid token address");
         require(supportedTokens[token], "Token not supported");
         require(minSurpassed[token], "Minimum liquidity not surpassed");
@@ -66,6 +70,41 @@ contract Torus {
         liquidity[token2] = amt2;
 
     }
+    function _bubbleUp(uint16 idx) internal {
+        // Move element at idx toward the front while it outranks its predecessor
+        while (idx > 0) {
+            uint16 aId = order[idx];
+            uint16 bId = order[idx - 1];
+
+            if (liquidity[tokens[aId]] <= liquidity[tokens[bId]]) break;
+
+            // swap a <-> b
+            order[idx]     = bId;
+            order[idx - 1] = aId;
+            pos[aId]       = idx - 1;
+            pos[bId]       = idx;
+
+            unchecked { --idx; }
+        }
+    }
+
+    function _bubbleDown(uint16 idx) internal {
+        while (idx + 1 < order.length) {
+            uint16 aId = order[idx];
+            uint16 cId = order[idx + 1];
+
+            if (liquidity[tokens[aId]] >= liquidity[tokens[cId]]) break;
+
+            // swap a <-> c
+            order[idx]     = cId;
+            order[idx + 1] = aId;
+            pos[aId]       = idx + 1;
+            pos[cId]       = idx;
+
+            unchecked { ++idx; }
+        }
+    }
+    
 
     function setMinLiq(uint256 minLiq_) public onlyOwner {
         minLiq = minLiq_;
@@ -91,7 +130,41 @@ contract Torus {
         }
     }
 
-    // Liquidity Functions
+
+    // Price between tokenA and tokenB depends on the ratio of [(a-x)/a] /[(b-y)/b]. 
+    // This is from the partial derivative of the invariant function.
+    function getPrice2(address tokenA, address tokenB) public view validToken(tokenA) validToken(tokenB) returns (uint256) {
+        return mul(
+            div(a[tokenA] - reserves[tokenA], a[tokenB] - reserves[tokenB]), 
+            div(a[tokenB], a[tokenA])
+            );
+    }
+
+    function calculateFresh() internal{
+        for (uint i = 0; i < tokens.length; i++) {
+            uint a2 = 0;
+            for (uint j = 0; j < tokens.length; j++) {
+                uint256 p = getPrice(tokens[i], tokens[j]);
+                a2 += mul(mul(liquidity[tokens[j]], liquidity[tokens[j]]), p);
+            }
+            a[tokens[i]] = sqrt(a2);
+        }
+
+    }
+
+    function calculateA() internal{
+
+        for (uint i = 0; i < tokens.length; i++) {
+            uint a2 = 0;
+            for (uint j = 0; j < tokens.length; j++) {
+                uint256 p = getPrice(tokens[i], tokens[j]);
+                a2 += mul(sq(liquidity[tokens[j]]), p);
+            }
+            a[tokens[i]] = sqrt(a2);
+        }
+
+    }
+
     function addLiquidity(address token, uint128 amount) public validToken(token) {
         IERC20(token).transferFrom(msg.sender, address(this), amount);
         _changeLiquidity(token, amount, true);
