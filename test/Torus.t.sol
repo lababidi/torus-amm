@@ -8,13 +8,13 @@ import {Torus} from "../src/Torus.sol";
 
 contract TestTokenA is ERC20 {
     constructor() ERC20("Test Token A", "TTA") {
-        _mint(msg.sender, 1_000_000 ether);
+        _mint(msg.sender, 1_000_000e18 );
     }
 }
 
 contract TestTokenB is ERC20 {
     constructor() ERC20("Test Token B", "TTB") {
-        _mint(msg.sender, 1_000_000 ether);
+        _mint(msg.sender, 1_000_000e18 );
     }
 }
 
@@ -26,13 +26,12 @@ contract TorusTest is Test {
     function setUp() public {
         tokenA = new TestTokenA();
         tokenB = new TestTokenB();
-        torus = new Torus(0);
-        torus.addToken(address(tokenA));
-        torus.addToken(address(tokenB));
+        torus = new Torus(address(tokenA), address(tokenB));
         tokenA.approve(address(torus), type(uint256).max);
         tokenB.approve(address(torus), type(uint256).max);
-        torus.addLiquidity(address(tokenA), uint256(100_000));
-        torus.addLiquidity(address(tokenB), uint256(100_000));
+        torus.initLiquidity(100e18);
+        // torus.modLiquidity(address(tokenA), int256(10_000));
+        // torus.addLiquidity(address(tokenB), uint256(100_000));
 
     }
 

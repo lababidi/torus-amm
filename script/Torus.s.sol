@@ -13,7 +13,7 @@ contract CounterScript is Script {
     function run() public {
         vm.startBroadcast();
 
-        torus = new Torus(0);
+        torus = new Torus(address(0), address(0));
 
         vm.stopBroadcast();
     }
