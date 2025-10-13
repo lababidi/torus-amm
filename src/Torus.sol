@@ -81,7 +81,7 @@ contract Torus {
             x[i] = liq;
             bubble(i, false);
             updateTotal(i);
-            IERC20(token).transferFrom(msg.sender, address(this), amount);
+            IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
             // mint redemption tokens todo
         }
 
@@ -237,7 +237,6 @@ contract Torus {
                 }
             }
         }
-
     }
 
     function getSigns() internal view returns (int8[] memory signs) {
@@ -309,11 +308,13 @@ contract Torus {
     function calculateA() internal{
         int8[][] memory signs = getAllSigns();
         uint8 combinations = uint8(2 ** n);
-        for (uint8 i = 0; i < combinations; i++) {
-            if(checkForSolution(signs[i])) {
-                int256 w = _newton(signs[i]);
+        for (uint8 c = 0; c < combinations; c++) {
+            if(checkForSolution(signs[c])) {
+                int256 w = _newton(signs[c]);
                 for (uint j = 0; j < n; j++) {
-                    a[j] = uint256(1e18 - int256(signs[i][j])*int256(sqrt(1e18 - mul(uint256(w), liquidityNorm[j]))));
+                    console.log("liquidity[j]", liquidity[j]);
+                    console.log("liquidityNorm[j]", liquidityNorm[j]);
+                    a[j] = uint256(1e18 - int256(signs[c][j])*int256(sqrt(1e18 - mul(uint256(w), liquidityNorm[j]))));
                     console.log("a[j]", a[j]);
                 }
                 return;
@@ -377,12 +378,12 @@ contract Torus {
         }
     }
     function addLiquidity(address token, uint128 amount) public validToken(token) {
-        IERC20(token).transferFrom(msg.sender, address(this), amount);
+        IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
         modLiquidity(token, int128(amount));
     }
     // This will be a permit2 version later
     function addLiquidity(address token, uint256 amount) public validToken(token) {
-        IERC20(token).transferFrom(msg.sender, address(this), amount);
+        IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
         modLiquidity(token, int256(amount));
     }
     // This will be a permit2 version later
@@ -398,11 +399,13 @@ contract Torus {
         updateTotal(i);
         calculateA();
         if (remove) require(liquidity[i] >= abs_(liq), "Insufficient liquidity");
-        IERC20(token).transferFrom(from, to, abs_(amount));
+        IERC20(token).safeTransferFrom(from, to, abs_(amount));
     }
 
     function updateTotal(uint16 i) public {
         liquidityNorm[i] = div(liquidity[i], lmax);
+        console.log("liquidityNorm[i]", liquidityNorm[i]);
+        console.log("lmax", lmax);
         lsum = sumL(liquidityNorm);
         minSurpassed[tokens[i]] = liquidity[i] > minLiquidity[i];
     }

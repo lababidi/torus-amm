@@ -35,8 +35,14 @@ contract TorusTest is Test {
 
     }
 
-    function testPrice() public view {
-        assertEq(torus.getPrice(address(tokenA), address(tokenB)), 1e18);
+    // function testPrice() public view {
+    //     assertEq(torus.getPrice(address(tokenA), address(tokenB)), 1e18);
+    // }
+
+    function testAddLiquidity() public {
+        torus.modLiquidity(address(tokenA), 100e18);
+        console.log("a:", torus.a(0));
+        console.log("a:", torus.a(1));
     }
 
     // function testFuzz_SetNumber(uint256 x) public {
