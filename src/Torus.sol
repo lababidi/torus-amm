@@ -186,7 +186,14 @@ contract Torus {
 
     function _newton(int8[] memory signs) internal view returns (int256 w) {
         // now bisect to find w
-        w = .99e18;
+        // log the liquidityNorm
+        for (uint i = 0; i < n; i++) {
+            console.log("liquidityNorm[i]", liquidityNorm[i]);
+        }
+        console.log("lsum", lsum);
+        console.log("n", n);
+        int24 steps = 0;
+        w = 1e18 -1e10;
         int256 nHalf = int256(int24(n))*.5e18;
         int256 lsum_ = int256(lsum);
         int256 newton = 1e18;
@@ -196,27 +203,34 @@ contract Torus {
             require(w <= 1e18, "w out of bounds, w > 1e18");
             int256 fx_ = 0;
             int256 dfx_ = 0;
+            // int256 dffx = 0;
             for (uint i = 0; i < n; i++) {
                 s[i] = sTerm(w, i);
                 s_[i] = s[i] * signs[i];
                 fx_ += s_[i];
                 dfx_ += div(int256(liquidityNorm[i]), s_[i]);
+                // dffx += div(sq(int256(liquidityNorm[i])), cube(s_[i]));
                 // console.log("dfx term", div(int256(liquidityNorm[i]), s_[i]));
                 // console.log("s_[i]", s_[i]);
                 // console.log("signs[i]", signs[i]);
             }
             // console.log("sSum", sSum);
             int256 fx = nHalf - mul(w, lsum_)/4 - fx_/2 - 1e18;
-            int256 dfx = -lsum_ + dfx_/4;
+            int256 dfx = -lsum_/4 + dfx_/4;
+            // dffx = -dffx/8;
             newton = div(fx, dfx);
+            // newton = div(mul(fx, dfx), sq(dfx) - mul(fx, dffx)/2);
             console.log("fx", fx);
             console.log("dfx", dfx);
+            // console.log("dffx", dffx);
             console.log("newton", newton);
 
             console.log("w before", w);
             w = w - newton;
+            steps += 1;
             // console.log("w", w);
         }
+        console.log("steps", steps);
     }
 
 
@@ -292,8 +306,15 @@ contract Torus {
             // console.log("prev", prev);
             // console.log("s", s);
             if (prev>0 && s < 0) {
+                console.log(signs[0]);
+                console.log(signs[1]);
                 return true;
             } else if (prev<0 && s > 0) {
+                console.log("w", w);
+                console.log("prev", prev);
+                console.log("s", s);
+                console.log(signs[0]);
+                console.log(signs[1]);
                 return true;
             }
             prev = s > 0 ? int8(1) : int8(-1);
@@ -440,6 +461,7 @@ contract Torus {
 
     function sq(uint256 x_) internal pure returns (uint256) {return mul(x_, x_);}
     function sq(int256 x_) internal pure returns (int256) {return mul(x_, x_);}
+    function cube(int256 x_) internal pure returns (int256) {return mul(x_, sq(x_));}
     function muldiv(uint256 x_, uint256 y_, uint256 z_) internal pure returns (uint256) {return x_ * y_ / z_;}
     function muldiv(uint256 x_, int256 y_, uint256 z_) internal pure returns (int256) {return int256(x_) * y_ / int256(z_);}
     function muldiv(uint256 x_, uint256 y_, int256 z_) internal pure returns (int256) {return int256(x_) * int256(y_) / z_;}

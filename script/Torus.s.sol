@@ -14,6 +14,7 @@ contract CounterScript is Script {
         vm.startBroadcast();
 
         torus = new Torus(address(0), address(0));
+        console.log("Torus deployed to:", address(torus));
 
         vm.stopBroadcast();
     }

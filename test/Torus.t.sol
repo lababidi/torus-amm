@@ -18,6 +18,12 @@ contract TestTokenB is ERC20 {
     }
 }
 
+contract TestToken is ERC20 {
+    constructor(string memory name, string memory symbol) ERC20(name, symbol) {
+        _mint(msg.sender, 1_000_000e18 );
+    }
+}
+
 contract TorusTest is Test {
     Torus public torus;
     TestTokenA public tokenA;
@@ -39,10 +45,21 @@ contract TorusTest is Test {
     //     assertEq(torus.getPrice(address(tokenA), address(tokenB)), 1e18);
     // }
 
-    function testAddLiquidity() public {
-        torus.modLiquidity(address(tokenA), 100e18);
+    // function testAddLiquidity() public {
+    //     torus.modLiquidity(address(tokenA), 100e18);
+    //     console.log("a:", torus.a(0));
+    //     console.log("a:", torus.a(1));
+    // }
+
+    
+    function testAddTokenLiq() public {
+        TestToken tokenC = new TestToken("Test Token C", "TTC");
+        tokenC.approve(address(torus), type(uint256).max);
+        torus.addToken(address(tokenC));
+        torus.modLiquidity(address(tokenC), 100e18);
         console.log("a:", torus.a(0));
         console.log("a:", torus.a(1));
+        console.log("a:", torus.a(2));
     }
 
     // function testFuzz_SetNumber(uint256 x) public {
