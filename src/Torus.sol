@@ -80,7 +80,7 @@ contract Torus {
             liquidity[i] = liq;
             x[i] = liq;
             bubble(i, false);
-            updateTotal(i);
+            updateTotal();
             IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
             // mint redemption tokens todo
         }
@@ -186,7 +186,7 @@ contract Torus {
 
     function _newton(int8[] memory signs) internal view returns (int256 w) {
         // now bisect to find w
-        w = .6e18;
+        w = .99e18;
         int256 nHalf = int256(int24(n))*.5e18;
         int256 lsum_ = int256(lsum);
         int256 newton = 1e18;
@@ -206,23 +206,19 @@ contract Torus {
                 // console.log("signs[i]", signs[i]);
             }
             // console.log("sSum", sSum);
-            int256 fx = nHalf - 1e18 - mul(w, lsum_) + fx_/2;
-            int256 dfx = -(lsum_ + dfx_/4);
+            int256 fx = nHalf - 1e18 - mul(w, lsum_)/4 - fx_/2;
+            int256 dfx = -lsum_ + dfx_/4;
             newton = div(fx, dfx);
             console.log("fx", fx);
             console.log("dfx", dfx);
             console.log("newton", newton);
-            // console.log("w before", w);
+
+            console.log("w before", w);
             w = w - newton;
-            console.log("w", w);
+            // console.log("w", w);
         }
     }
 
-    function sumL(uint256[] memory l) internal pure returns (uint256 lsum_) {
-        for (uint i = 0; i < l.length; i++) {
-            lsum_ += l[i];
-        }
-    }
 
     function getAllSigns() public view returns (int8[][] memory signs) {
         uint256 combinations = 2 ** n;
@@ -257,12 +253,12 @@ contract Torus {
                 current -= r[o];
                 signs[o] = -1;
             }
-            console.log("i", i);
-            console.log("o", o);
-            console.log("current", current);
-            console.log("target", target);
-            console.log("r[o]", r[o]);
-            console.log("signs[o]", signs[o]);
+            // console.log("i", i);
+            // console.log("o", o);
+            // console.log("current", current);
+            // console.log("target", target);
+            // console.log("r[o]", r[o]);
+            // console.log("signs[o]", signs[o]);
         }
     }
 
@@ -288,13 +284,13 @@ contract Torus {
             s = 0;
             for (uint i = 0; i < n; i++) {
                 s += int256(signs[i]) * sTerm(w, i) ;
-                console.log("signs[i]", signs[i]);
-                console.log("sTerm", sTerm(w, i));
+                // console.log("signs[i]", signs[i]);
+                // console.log("sTerm", sTerm(w, i));
             }
-            s = s/2 + nHalf - 1e18 - mul(int256(lsum), w);
-            console.log("w", w);
-            console.log("prev", prev);
-            console.log("s", s);
+            s = nHalf - 1e18 - mul(int256(lsum), w)/4 - s/2;
+            // console.log("w", w);
+            // console.log("prev", prev);
+            // console.log("s", s);
             if (prev>0 && s < 0) {
                 return true;
             } else if (prev<0 && s > 0) {
@@ -312,8 +308,8 @@ contract Torus {
             if(checkForSolution(signs[c])) {
                 int256 w = _newton(signs[c]);
                 for (uint j = 0; j < n; j++) {
-                    console.log("liquidity[j]", liquidity[j]);
-                    console.log("liquidityNorm[j]", liquidityNorm[j]);
+                    // console.log("liquidity[j]", liquidity[j]);
+                    // console.log("liquidityNorm[j]", liquidityNorm[j]);
                     a[j] = uint256(1e18 - int256(signs[c][j])*int256(sqrt(1e18 - mul(uint256(w), liquidityNorm[j]))));
                     console.log("a[j]", a[j]);
                 }
@@ -396,18 +392,23 @@ contract Torus {
         liquidity[i] = uint256(int256(liquidity[i]) + liq);
         x[i] = uint256(int256(x[i]) + liq);
         bubble(i, remove);
-        updateTotal(i);
+        updateTotal();
         calculateA();
         if (remove) require(liquidity[i] >= abs_(liq), "Insufficient liquidity");
         IERC20(token).safeTransferFrom(from, to, abs_(amount));
     }
 
-    function updateTotal(uint16 i) public {
-        liquidityNorm[i] = div(liquidity[i], lmax);
-        console.log("liquidityNorm[i]", liquidityNorm[i]);
-        console.log("lmax", lmax);
-        lsum = sumL(liquidityNorm);
-        minSurpassed[tokens[i]] = liquidity[i] > minLiquidity[i];
+    function updateTotal() public {
+        lsum = 0;
+        for (uint16 i = 0; i < n; i++) {
+            liquidityNorm[i] = div(liquidity[i], lmax);
+            console.log("liq[i]", liquidity[i]);
+            console.log("norm[i]", liquidityNorm[i]);
+            console.log("lmax", lmax);
+            lsum += liquidityNorm[i];
+            minSurpassed[tokens[i]] = liquidity[i] > minLiquidity[i];
+
+        }
     }
 
     function swap(address tokenOut, address tokenIn, uint256 amountIn) public validToken(tokenOut) validToken(tokenIn) {
