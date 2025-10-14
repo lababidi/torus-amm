@@ -33,7 +33,7 @@ contract Torus {
     uint16[] public decimals;
     uint256[] public liquidityNorm;
     uint256[] public x;
-    uint256[] public a;
+    int256[] public a;
     uint256[] public fees;
     address[] public redemption;
     uint16[] public redemptionPos;
@@ -166,17 +166,17 @@ contract Torus {
 
     // Price between tokenA and tokenB depends on the ratio of [(a-x)/a] /[(b-y)/b]. 
     // This is from the partial derivative of the invariant function.
-    function getPrice(address tokenA, address tokenB) public view validToken(tokenA) validToken(tokenB) returns (uint256) {
+    function getPrice(address tokenA, address tokenB) public view validToken(tokenA) validToken(tokenB) returns (int256) {
 
         uint16 i = pos[tokenA];
         uint16 j = pos[tokenB];
 
         return mul(
             div(
-                1e18 - mul(a[i], div(x[i],liquidity[i])), 
-                1e18 - mul(a[j], div(x[j],liquidity[j]))
-                ), 
-            div(mul(a[j],liquidity[i]), mul(a[i],liquidity[j]))
+                1e18 - mul(a[i], int256(div(x[i],liquidity[i]))),
+                1e18 - mul(a[j], int256(div(x[j],liquidity[j])))
+                ),
+            div(mul(a[j],int256(liquidity[i])), mul(a[i],int256(liquidity[j])))
             );
     }
 
@@ -206,7 +206,7 @@ contract Torus {
                 // console.log("signs[i]", signs[i]);
             }
             // console.log("sSum", sSum);
-            int256 fx = nHalf - 1e18 - mul(w, lsum_)/4 - fx_/2;
+            int256 fx = nHalf - mul(w, lsum_)/4 - fx_/2 - 1e18;
             int256 dfx = -lsum_ + dfx_/4;
             newton = div(fx, dfx);
             console.log("fx", fx);
@@ -310,7 +310,7 @@ contract Torus {
                 for (uint j = 0; j < n; j++) {
                     // console.log("liquidity[j]", liquidity[j]);
                     // console.log("liquidityNorm[j]", liquidityNorm[j]);
-                    a[j] = uint256(1e18 - int256(signs[c][j])*int256(sqrt(1e18 - mul(uint256(w), liquidityNorm[j]))));
+                    a[j] = .5e18 + int256(signs[c][j])*int256(sqrt(1e18 - mul(uint256(w), liquidityNorm[j]))/2);
                     console.log("a[j]", a[j]);
                 }
                 return;
@@ -319,19 +319,19 @@ contract Torus {
     }
 
 
-    function calculateA_() internal{
-        int8[] memory signs = getSigns();
-        if(!checkForSolution(signs)) {
-            // try to find a better set of signs
-            // currently just revert
-            revert("No solution found for current liquidity");
-        }
+    // function calculateA_() internal{
+    //     int8[] memory signs = getSigns();
+    //     if(!checkForSolution(signs)) {
+    //         // try to find a better set of signs
+    //         // currently just revert
+    //         revert("No solution found for current liquidity");
+    //     }
 
-        int256 w_ = _newton(signs);
-        for (uint i = 0; i < n; i++) {
-            a[i] = uint256(1e18 - int256(signs[i])*int256(sqrt(1e18 - mul(uint256(w_), liquidityNorm[i]))));
-        }
-    }
+    //     int256 w_ = _newton(signs);
+    //     for (uint i = 0; i < n; i++) {
+    //         a[i] = 1e18 - int256(signs[i])*int256(sqrt(1e18 - mul(uint256(w_), liquidityNorm[i])));
+    //     }
+    // }
 
     function calcLiq( uint256 amount, uint16 decimal) internal pure returns (uint256 liq) {
 
@@ -420,7 +420,7 @@ contract Torus {
         uint16 i = pos[tokenIn];
         uint16 j = pos[tokenOut];
         uint256 amountIn = calcLiq(swapAmountIn, decimals[i]);
-        uint256 amountOut = getSwapAmount(amountIn, a[i], a[j], liquidity[i],liquidity[j],x[i],x[j]);
+        uint256 amountOut = uint256(getSwapAmount(amountIn, a[i], a[j], liquidity[i],liquidity[j],x[i],x[j]));
         uint256 swapAmountOut = calcTransfer(amountOut, decimals[j]);
         require(x[j] >= amountOut, "Insufficient reserves for output token");
         x[i] += amountIn;
@@ -430,19 +430,22 @@ contract Torus {
     }
 
 
-    function getSwapAmount(uint256 amountIn, uint256 ai, uint256 ao, uint256 liqIn, uint256 liqOut, uint256 xi, uint256 xo) public pure returns (uint256 amountOut) {
+    function getSwapAmount(uint256 amountIn, int256 ai, int256 ao, uint256 liqIn, uint256 liqOut, uint256 xi, uint256 xo) public pure returns (int256 amountOut) {
         // symmetric for out and in
-        uint x2y2 = sq(1e18 - muldiv(xi, ai, liqIn)) + sq(1e18 - muldiv(xo, ao, liqOut));
-        uint256 s_ = x2y2 - sq(1e18 - muldiv(xi + amountIn, ai, liqIn));
-        amountOut =  muldiv(1e18-sqrt(s_), liqOut, ao);
+        int x2y2 = sq(1e18 - muldiv(xi, ai, liqIn)) + sq(1e18 - muldiv(xo, ao, liqOut));
+        int256 s_ = x2y2 - sq(1e18 - muldiv(xi + amountIn, ai, liqIn));
+        amountOut =  muldiv(liqOut,1e18-sqrt(uint256(s_)),  ao);
     }
 
 
     function sq(uint256 x_) internal pure returns (uint256) {return mul(x_, x_);}
+    function sq(int256 x_) internal pure returns (int256) {return mul(x_, x_);}
     function muldiv(uint256 x_, uint256 y_, uint256 z_) internal pure returns (uint256) {return x_ * y_ / z_;}
+    function muldiv(uint256 x_, int256 y_, uint256 z_) internal pure returns (int256) {return int256(x_) * y_ / int256(z_);}
+    function muldiv(uint256 x_, uint256 y_, int256 z_) internal pure returns (int256) {return int256(x_) * int256(y_) / z_;}
     function mul(uint256 x_, uint256 y_) internal pure returns (uint256) {return x_ * y_ / 1e18;}
-    function mul2(uint256 x_, uint256 y_) internal pure returns (uint256) {return x_ * y_ / 1e36;}
     function mul(int256 x_, int256 y_) internal pure returns (int256) {return x_ * y_ / 1e18;}
+    function mul2(uint256 x_, uint256 y_) internal pure returns (uint256) {return x_ * y_ / 1e36;}
     function div(uint256 x_, uint256 y_) internal pure returns (uint256) {return x_ * 1e18 / y_;}
     function div(int256 x_, int256 y_) internal pure returns (int256) {return x_ * 1e18 / y_;}
     function sqrt(uint256 y) internal pure returns (uint256 z) {
