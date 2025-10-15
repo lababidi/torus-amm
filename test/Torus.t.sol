@@ -41,9 +41,24 @@ contract TorusTest is Test {
 
     }
 
-    // function testPrice() public view {
-    //     assertEq(torus.getPrice(address(tokenA), address(tokenB)), 1e18);
-    // }
+    function testPrice() public view {
+        assertEq(torus.getPrice(address(tokenA), address(tokenB)), 1e18);
+    }
+
+    function testPrice2() public{
+        TestToken tokenC = new TestToken("Test Token C", "TTC");
+        tokenC.approve(address(torus), type(uint256).max);
+        torus.addToken(address(tokenC));
+        torus.modLiquidity(address(tokenC), 80e18);
+        torus.modLiquidity(address(tokenA), 10e18);
+
+        console.log("a:", torus.a(0));
+        console.log("a:", torus.a(1));
+        console.log("a:", torus.a(2));
+        assertApproxEqAbs(torus.getPrice(address(tokenA), address(tokenB)), 1e18, 1e10);
+        assertApproxEqAbs(torus.getPrice(address(tokenA), address(tokenC)), 1e18, 1e10);
+        assertApproxEqAbs(torus.getPrice(address(tokenB), address(tokenC)), 1e18, 1e10);
+    }
 
     // function testAddLiquidity() public {
     //     torus.modLiquidity(address(tokenA), 100e18);
@@ -56,6 +71,7 @@ contract TorusTest is Test {
         TestToken tokenC = new TestToken("Test Token C", "TTC");
         tokenC.approve(address(torus), type(uint256).max);
         torus.addToken(address(tokenC));
+        torus.modLiquidity(address(tokenA), 100e18);
         torus.modLiquidity(address(tokenC), 100e18);
         console.log("a:", torus.a(0));
         console.log("a:", torus.a(1));
