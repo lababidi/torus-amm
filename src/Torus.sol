@@ -10,14 +10,15 @@ import {console} from "forge-std/console.sol";
 
 contract TorusRedemption is ERC4626 {
     Torus public torus;
-    constructor(address underlying, string memory name, string memory symbol)
-        ERC4626(IERC20(underlying))
-        ERC20(name, symbol)
-    {
+
+    constructor(
+        address underlying,
+        string memory name,
+        string memory symbol
+    ) ERC4626(IERC20(underlying)) ERC20(name, symbol) {
         torus = Torus(msg.sender);
         // Additional initialization if needed
     }
-
 }
 
 contract Torus {
@@ -29,9 +30,9 @@ contract Torus {
     address[] public tokens;
     uint16[] public order;
     uint16[] public orderPos;
-    
+
     uint256[] public liquidity;
-    uint256[] public minLiquidity;
+    uint256 public minLiquidity;
     uint16[] public decimals;
     uint256[] public liquidityNorm;
     uint256[] public x;
@@ -41,7 +42,6 @@ contract Torus {
     uint16[] public redemptionPos;
     mapping(address => bool) public supported;
     mapping(address => bool) public minSurpassed;
-
 
     modifier validToken(address token) {
         require(token != address(0), "Invalid token address");
@@ -73,8 +73,8 @@ contract Torus {
         addToken(tokenA);
         addToken(tokenB);
         // initLiquidity(100);
-
     }
+
     function addToken(address token) public onlyOwner {
         require(token != address(0), "Invalid token address");
         supported[token] = true;
@@ -84,7 +84,6 @@ contract Torus {
         order.push(uint16(n - 1));
         orderPos.push(uint16(n - 1));
         liquidity.push(0);
-        minLiquidity.push(0);
         liquidityNorm.push(0);
         x.push(0);
         fees.push(0);
@@ -92,10 +91,11 @@ contract Torus {
         // redemption.push();
         decimals.push(IERC20Metadata(token).decimals());
     }
-    
-    function setMinLiquidity(address token, uint256 min) public onlyOwner validToken(token) {
-        minLiquidity[pos[token]] = min;
+
+    function setMinLiquidity(uint256 min) public onlyOwner {
+        minLiquidity = min;
     }
+
     function getTokens() public view returns (address[] memory activeTokens) {
         activeTokens = new address[](tokens.length);
         uint256 count = 0;
@@ -119,8 +119,10 @@ contract Torus {
         return inc ? i + 1 : i - 1;
     }
 
-    function calcLiq( uint256 amount, uint16 decimal) internal pure returns (uint256 liq) {
-
+    function calcLiq(
+        uint256 amount,
+        uint16 decimal
+    ) internal pure returns (uint256 liq) {
         if (18 > decimal) {
             liq = amount * (10 ** uint16(18 - decimal));
         } else if (18 < decimal) {
@@ -129,8 +131,11 @@ contract Torus {
             liq = amount;
         }
     }
-    function calcTransfer( uint256 liq, uint16 decimal) internal pure returns (uint256 amount) {
 
+    function calcTransfer(
+        uint256 liq,
+        uint16 decimal
+    ) internal pure returns (uint256 amount) {
         if (18 > decimal) {
             amount = liq / (10 ** uint16(18 - decimal));
         } else if (18 < decimal) {
@@ -139,8 +144,11 @@ contract Torus {
             amount = liq;
         }
     }
-    function calcLiq( int256 amount, uint16 decimal) internal pure returns (int256 liq) {
 
+    function calcLiq(
+        int256 amount,
+        uint16 decimal
+    ) internal pure returns (int256 liq) {
         if (18 > decimal) {
             liq = amount * int256(10 ** (18 - decimal));
         } else if (18 < decimal) {
@@ -149,8 +157,11 @@ contract Torus {
             liq = amount;
         }
     }
-    function calcTransfer( int256 liq, uint16 decimal) internal pure returns (int256 amount) {
 
+    function calcTransfer(
+        int256 liq,
+        uint16 decimal
+    ) internal pure returns (int256 amount) {
         if (18 > decimal) {
             amount = liq / int256(10 ** (18 - decimal));
         } else if (18 < decimal) {
@@ -159,7 +170,8 @@ contract Torus {
             amount = liq;
         }
     }
-    function initLiquidity(uint256 liq) public  {
+
+    function initLiquidity(uint256 liq) public {
         for (uint16 i = 0; i < 2; i++) {
             address token = tokens[i];
             uint256 amount = calcTransfer(liq, decimals[i]);
@@ -173,18 +185,29 @@ contract Torus {
 
         calculateA();
     }
-    
-    function addLiquidity(address token, uint128 amount) public validToken(token) {
+
+    function addLiquidity(
+        address token,
+        uint128 amount
+    ) public validToken(token) {
         IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
         modLiquidity(token, int128(amount));
     }
+
     // This will be a permit2 version later
-    function addLiquidity(address token, uint256 amount) public validToken(token) {
+    function addLiquidity(
+        address token,
+        uint256 amount
+    ) public validToken(token) {
         IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
         modLiquidity(token, int256(amount));
     }
+
     // This will be a permit2 version later
-    function modLiquidity(address token, int256 amount) public validToken(token) {
+    function modLiquidity(
+        address token,
+        int256 amount
+    ) public validToken(token) {
         uint16 i = pos[token];
         int256 liq = int256(calcLiq(amount, decimals[i]));
         bool remove = amount < 0;
@@ -196,7 +219,8 @@ contract Torus {
         bubble(orderPos[i], remove);
         updateTotal();
         calculateA();
-        if (remove) require(liquidity[i] >= abs_(liq), "Insufficient liquidity");
+        if (remove)
+            require(liquidity[i] >= abs_(liq), "Insufficient liquidity");
         IERC20(token).safeTransferFrom(from, to, abs_(amount));
     }
 
@@ -208,78 +232,81 @@ contract Torus {
             console.log("norm[i]", liquidityNorm[i]);
             console.log("lmax", lmax);
             lsum += liquidityNorm[i];
-            minSurpassed[tokens[i]] = liquidity[i] > minLiquidity[i];
-
+            minSurpassed[tokens[i]] = liquidity[i] > minLiquidity;
         }
     }
 
     function bubble2(uint16 idx, bool down) internal {
         uint16 current = down ? idx + 1 : idx;
-        uint16 end = down? uint16(order.length):0;
-        while (current  < end) {
+        uint16 end = down ? uint16(order.length) : 0;
+        while (current < end) {
             uint16 i = order[current];
-            uint16 j = order[current-1];
+            uint16 j = order[current - 1];
             if (liquidity[i] <= liquidity[j]) break;
-            order[current]   = j;  // swap a <-> b
-            order[current-1] = i;
-            unchecked { current=incdec(down, current); }
+            order[current] = j; // swap a <-> b
+            order[current - 1] = i;
+            unchecked {
+                current = incdec(down, current);
+            }
         }
         lmax = liquidity[order[0]];
     }
-// Maintains `order` sorted by DESCENDING liquidity.
-// `pos` is the current index of the token that changed liquidity.
-// If `down == true`, its liquidity DECREASED → sink toward the end.
-// If `down == false`, its liquidity INCREASED → rise toward the front.
-function bubble(uint16 pos_, bool down) internal {
-    if (down) {
-        bubbleDown(pos_);
-    } else {
-        bubbleUp(pos_);
-    }
-}
 
-// Bubble upward (liquidity increased)
-// Keeps order sorted in DESCENDING liquidity
-function bubbleUp(uint16 idx) internal {
-    
-    while (idx > 0) {
-        uint16 above = order[idx - 1];
-        uint16 cur   = order[idx];
-        console.log("cur", cur);
-        console.log("above", above);
-        if (liquidity[above] >= liquidity[cur]) break;
-        // swap
-        order[idx - 1] = cur;
-        order[idx]     = above;
-        unchecked { idx--; }
+    // Maintains `order` sorted by DESCENDING liquidity.
+    // `pos` is the current index of the token that changed liquidity.
+    // If `down == true`, its liquidity DECREASED → sink toward the end.
+    // If `down == false`, its liquidity INCREASED → rise toward the front.
+    function bubble(uint16 pos_, bool down) internal {
+        if (down) {
+            bubbleDown(pos_);
+        } else {
+            bubbleUp(pos_);
+        }
     }
-    // update all orderPos
-    for (uint16 i = 0; i < n; i++) {
-        orderPos[order[i]] = i;
-    }
-    lmax = liquidity[order[0]];
-}
 
-// Bubble downward (liquidity decreased)
-// Keeps order sorted in DESCENDING liquidity
-function bubbleDown(uint16 idx) internal {
-    while (idx + 1 < n) {
-        uint16 cur   = order[idx];
-        uint16 below = order[idx + 1];
-        if (liquidity[cur] >= liquidity[below]) break;
-        // swap
-        order[idx]     = below;
-        order[idx + 1] = cur;
-        unchecked { idx++; }
+    // Bubble upward (liquidity increased)
+    // Keeps order sorted in DESCENDING liquidity
+    function bubbleUp(uint16 idx) internal {
+        while (idx > 0) {
+            uint16 above = order[idx - 1];
+            uint16 cur = order[idx];
+            console.log("cur", cur);
+            console.log("above", above);
+            if (liquidity[above] >= liquidity[cur]) break;
+            // swap
+            order[idx - 1] = cur;
+            order[idx] = above;
+            unchecked {
+                idx--;
+            }
+        }
+        // update all orderPos
+        for (uint16 i = 0; i < n; i++) {
+            orderPos[order[i]] = i;
+        }
+        lmax = liquidity[order[0]];
     }
-    // update all orderPos
-    for (uint16 i = 0; i < n; i++) {
-        orderPos[order[i]] = i;
+
+    // Bubble downward (liquidity decreased)
+    // Keeps order sorted in DESCENDING liquidity
+    function bubbleDown(uint16 idx) internal {
+        while (idx + 1 < n) {
+            uint16 cur = order[idx];
+            uint16 below = order[idx + 1];
+            if (liquidity[cur] >= liquidity[below]) break;
+            // swap
+            order[idx] = below;
+            order[idx + 1] = cur;
+            unchecked {
+                idx++;
+            }
+        }
+        // update all orderPos
+        for (uint16 i = 0; i < n; i++) {
+            orderPos[order[i]] = i;
+        }
+        lmax = liquidity[order[0]];
     }
-    lmax = liquidity[order[0]];
-}
-
-
 
     function _bubbleUp(uint16 idx) internal {
         // Move element at idx toward the front while it outranks its predecessor
@@ -292,25 +319,27 @@ function bubbleDown(uint16 idx) internal {
             if (liquidity[i] <= liquidity[j]) break;
 
             // swap a <-> b
-            order[current]     = j;
+            order[current] = j;
             order[current - 1] = i;
 
-            unchecked { current=incdec(false, current); }
+            unchecked {
+                current = incdec(false, current);
+            }
         }
         lmax = liquidity[order[0]];
     }
 
-    function calculateA() internal{
+    function calculateA() internal {
         int256[][] memory signs = getAllSigns();
         uint8 combinations = uint8(2 ** n);
         for (uint8 c = 0; c < combinations; c++) {
             int256[] memory sigma = signs[c];
-            if(checkForSolution(sigma)) {
+            if (checkForSolution(sigma)) {
                 int256 w = _newton(sigma);
                 for (uint j = 0; j < n; j++) {
                     // console.log("liquidity[j]", liquidity[j]);
                     // console.log("liquidityNorm[j]", liquidityNorm[j]);
-                    a[j] = .5e18 + sigma[j]*sTerm(w, j)/2;
+                    a[j] = .5e18 + (sigma[j] * sTerm(w, j)) / 2;
                     console.log("a[j]", a[j]);
                 }
                 return;
@@ -318,26 +347,28 @@ function bubbleDown(uint16 idx) internal {
         }
     }
 
-    function checkForSolution(int256[] memory signs) internal view returns (bool) {
+    function checkForSolution(
+        int256[] memory signs
+    ) internal view returns (bool) {
         int256 s = 0;
         int256 prev = 0;
-        int256 nHalf = int256(int24(n))*.5e18;
+        int256 nHalf = int256(int24(n)) * .5e18;
         for (int w = 1e18; w > 0; w -= 1e17) {
             s = 0;
             for (uint i = 0; i < n; i++) {
-                s += int256(signs[i]) * sTerm(w, i) ;
+                s += int256(signs[i]) * sTerm(w, i);
                 // console.log("signs[i]", signs[i]);
                 // console.log("sTerm", sTerm(w, i));
             }
-            s = nHalf - 1e18 - mul(int256(lsum), w)/4 - s/2;
+            s = nHalf - 1e18 - mul(int256(lsum), w) / 4 - s / 2;
             // console.log("w", w);
             // console.log("prev", prev);
             // console.log("s", s);
-            if (prev>0 && s < 0) {
+            if (prev > 0 && s < 0) {
                 console.log(signs[0]);
                 console.log(signs[1]);
                 return true;
-            } else if (prev<0 && s > 0) {
+            } else if (prev < 0 && s > 0) {
                 console.log("w", w);
                 console.log("prev", prev);
                 console.log("s", s);
@@ -350,23 +381,29 @@ function bubbleDown(uint16 idx) internal {
         return false;
     }
 
-    // Price between tokenA and tokenB depends on the ratio of [(a-x)/a] /[(b-y)/b]. 
+    // Price between tokenA and tokenB depends on the ratio of [(a-x)/a] /[(b-y)/b].
     // This is from the partial derivative of the invariant function.
-    function getPrice(address tokenA, address tokenB) public view validToken(tokenA) validToken(tokenB) returns (int256) {
-
+    function getPrice(
+        address tokenA,
+        address tokenB
+    ) public view validToken(tokenA) validToken(tokenB) returns (int256) {
         uint16 i = pos[tokenA];
         uint16 j = pos[tokenB];
         int256 al = div(a[i], int256(liquidity[i]));
         int256 bl = div(a[j], int256(liquidity[j]));
 
-        return div(
-            mul(al, (1e18 - mul(al, int256(x[i])))),
-            mul(bl, (1e18 - mul(bl, int256(x[j]))))
-        );
+        return
+            div(
+                mul(al, (1e18 - mul(al, int256(x[i])))),
+                mul(bl, (1e18 - mul(bl, int256(x[j]))))
+            );
     }
 
     function sTerm(int256 w, uint256 i) internal view returns (int256) {
-        return int256(sqrt2(1e36 - mul2(uint256(w*1e18), liquidityNorm[i]*1e18)));
+        return
+            int256(
+                sqrt2(1e36 - mul2(uint256(w * 1e18), liquidityNorm[i] * 1e18))
+            );
     }
 
     function _newton(int256[] memory signs) internal view returns (int256 w) {
@@ -378,8 +415,8 @@ function bubbleDown(uint16 idx) internal {
         console.log("lsum", lsum);
         console.log("n", n);
         int24 steps = 0;
-        w = 1e18 -1e10;
-        int256 nHalf = int256(int24(n))*.5e18;
+        w = 1e18 - 1e10;
+        int256 nHalf = int256(int24(n)) * .5e18;
         int256 lsum_ = int256(lsum);
         int256 newton = 1e18;
         int256[] memory s = new int256[](n);
@@ -400,8 +437,8 @@ function bubbleDown(uint16 idx) internal {
                 // console.log("signs[i]", signs[i]);
             }
             // console.log("sSum", sSum);
-            int256 fx = nHalf - mul(w, lsum_)/4 - fx_/2 - 1e18;
-            int256 dfx = -lsum_/4 + dfx_/4;
+            int256 fx = nHalf - mul(w, lsum_) / 4 - fx_ / 2 - 1e18;
+            int256 dfx = -lsum_ / 4 + dfx_ / 4;
             // dffx = -dffx/8;
             newton = div(fx, dfx);
             // newton = div(mul(fx, dfx), sq(dfx) - mul(fx, dffx)/2);
@@ -413,7 +450,7 @@ function bubbleDown(uint16 idx) internal {
             console.log("w before", w);
             w = w - newton;
             if (w > 1e18) {
-                w = 1e18-1e3;
+                w = 1e18 - 1e3;
             } else if (w < 0) {
                 w = 1e3;
             }
@@ -422,7 +459,6 @@ function bubbleDown(uint16 idx) internal {
         }
         console.log("steps", steps);
     }
-
 
     function getAllSigns() public view returns (int256[][] memory signs) {
         uint256 combinations = 2 ** n;
@@ -440,17 +476,18 @@ function bubbleDown(uint16 idx) internal {
     }
 
     function getSigns() internal view returns (int8[] memory signs) {
-
         int256[] memory r = new int256[](n);
         signs = new int8[](n);
         for (uint i = 0; i < n; i++) {
             r[i] = int256(sqrt(1e18 - liquidityNorm[i]));
         }
-        int256 target = int256(lsum) - int64(1e18*n)/2 + 1e18;
+        int256 target = int256(lsum) - int64(1e18 * n) / 2 + 1e18;
         int256 current = 0;
-        for (int24 i = int24(n-1); i >= 0; i--) {
+        for (int24 i = int24(n - 1); i >= 0; i--) {
             uint16 o = order[uint24(i)];
-            if (abs(target - (current + r[o]) ) < abs(target - (current - r[o]))) {
+            if (
+                abs(target - (current + r[o])) < abs(target - (current - r[o]))
+            ) {
                 current += r[o];
                 signs[o] = 1;
             } else {
@@ -466,44 +503,138 @@ function bubbleDown(uint16 idx) internal {
         }
     }
 
+    function calculateSwap(uint256 amountIn, uint256 kBound) public pure returns (uint256) {
+        // placeholder
+        uint256 sumX = 0;
+        uint256 sumx2 = 0;
+        uint256 n_ = 2;
+        for (uint256 i = 0; i < n_; i++) {
+            uint256 xi = 1e18; // placeholder
+            sumX += xi;
+            sumx2 += xi * xi;
+        }
+        uint256 rInt = 0;
+        uint256 sqrtN = 0;
+        uint256 z = sumX/n_ - kBound - rInt * sqrtN;
+        uint256 s = 0;
+        uint256 x2y2 = (sumx2 - div(sq(sumX), n_));
+        uint256 f = sq(x2y2 + sq(z) + sq(s) - sq(rInt)) - 4*mul(sq(s), x2y2);
+        uint256 df = f;
+        return df;
+    }
 
-
-    function swap(address tokenOut, address tokenIn, uint256 amountIn) public validToken(tokenOut) validToken(tokenIn) {
+    function swap(
+        address tokenOut,
+        address tokenIn,
+        uint256 amountIn
+    ) public validToken(tokenOut) validToken(tokenIn) {
         swap(tokenOut, tokenIn, amountIn, msg.sender);
     }
 
-    function swap(address tokenOut, address tokenIn, uint256 swapAmountIn, address to) public validToken(tokenOut) validToken(tokenIn) {
+    function swap(
+        address tokenOut,
+        address tokenIn,
+        uint256 swapAmountIn,
+        address to
+    ) public validToken(tokenOut) validToken(tokenIn) {
         uint16 i = pos[tokenIn];
         uint16 j = pos[tokenOut];
         uint256 amountIn = calcLiq(swapAmountIn, decimals[i]);
-        uint256 amountOut = uint256(getSwapAmount(amountIn, a[i], a[j], liquidity[i],liquidity[j],x[i],x[j]));
+        uint256 amountOut = uint256(
+            getSwapAmount(
+                amountIn,
+                a[i],
+                a[j],
+                liquidity[i],
+                liquidity[j],
+                x[i],
+                x[j]
+            )
+        );
         uint256 swapAmountOut = calcTransfer(amountOut, decimals[j]);
         require(x[j] >= amountOut, "Insufficient reserves for output token");
         x[i] += amountIn;
         x[j] -= amountOut;
-        IERC20(tokenOut).safeTransferFrom(msg.sender, address(this), swapAmountIn);
+        IERC20(tokenOut).safeTransferFrom(
+            msg.sender,
+            address(this),
+            swapAmountIn
+        );
         IERC20(tokenIn).safeTransfer(to, swapAmountOut);
     }
 
-    function getSwapAmount(uint256 amountIn, int256 ai, int256 ao, uint256 liqIn, uint256 liqOut, uint256 xi, uint256 xo) public pure returns (int256 amountOut) {
+    function getSwapAmount(
+        uint256 amountIn,
+        int256 ai,
+        int256 ao,
+        uint256 liqIn,
+        uint256 liqOut,
+        uint256 xi,
+        uint256 xo
+    ) public pure returns (int256 amountOut) {
         // symmetric for out and in
-        int x2y2 = sq(1e18 - muldiv(xi, ai, liqIn)) + sq(1e18 - muldiv(xo, ao, liqOut));
+        int x2y2 = sq(1e18 - muldiv(xi, ai, liqIn)) +
+            sq(1e18 - muldiv(xo, ao, liqOut));
         int256 s_ = x2y2 - sq(1e18 - muldiv(xi + amountIn, ai, liqIn));
-        amountOut =  muldiv(liqOut,1e18-sqrt(uint256(s_)),  ao);
+        amountOut = muldiv(liqOut, 1e18 - sqrt(uint256(s_)), ao);
     }
 
+    function sq(uint256 x_) internal pure returns (uint256) {
+        return mul(x_, x_);
+    }
 
-    function sq(uint256 x_) internal pure returns (uint256) {return mul(x_, x_);}
-    function sq(int256 x_) internal pure returns (int256) {return mul(x_, x_);}
-    function cube(int256 x_) internal pure returns (int256) {return mul(x_, sq(x_));}
-    function muldiv(uint256 x_, uint256 y_, uint256 z_) internal pure returns (uint256) {return x_ * y_ / z_;}
-    function muldiv(uint256 x_, int256 y_, uint256 z_) internal pure returns (int256) {return int256(x_) * y_ / int256(z_);}
-    function muldiv(uint256 x_, uint256 y_, int256 z_) internal pure returns (int256) {return int256(x_) * int256(y_) / z_;}
-    function mul(uint256 x_, uint256 y_) internal pure returns (uint256) {return x_ * y_ / 1e18;}
-    function mul(int256 x_, int256 y_) internal pure returns (int256) {return x_ * y_ / 1e18;}
-    function mul2(uint256 x_, uint256 y_) internal pure returns (uint256) {return x_ * y_ / 1e36;}
-    function div(uint256 x_, uint256 y_) internal pure returns (uint256) {return x_ * 1e18 / y_;}
-    function div(int256 x_, int256 y_) internal pure returns (int256) {return x_ * 1e18 / y_;}
+    function sq(int256 x_) internal pure returns (int256) {
+        return mul(x_, x_);
+    }
+
+    function cube(int256 x_) internal pure returns (int256) {
+        return mul(x_, sq(x_));
+    }
+
+    function muldiv(
+        uint256 x_,
+        uint256 y_,
+        uint256 z_
+    ) internal pure returns (uint256) {
+        return (x_ * y_) / z_;
+    }
+
+    function muldiv(
+        uint256 x_,
+        int256 y_,
+        uint256 z_
+    ) internal pure returns (int256) {
+        return (int256(x_) * y_) / int256(z_);
+    }
+
+    function muldiv(
+        uint256 x_,
+        uint256 y_,
+        int256 z_
+    ) internal pure returns (int256) {
+        return (int256(x_) * int256(y_)) / z_;
+    }
+
+    function mul(uint256 x_, uint256 y_) internal pure returns (uint256) {
+        return (x_ * y_) / 1e18;
+    }
+
+    function mul(int256 x_, int256 y_) internal pure returns (int256) {
+        return (x_ * y_) / 1e18;
+    }
+
+    function mul2(uint256 x_, uint256 y_) internal pure returns (uint256) {
+        return (x_ * y_) / 1e36;
+    }
+
+    function div(uint256 x_, uint256 y_) internal pure returns (uint256) {
+        return (x_ * 1e18) / y_;
+    }
+
+    function div(int256 x_, int256 y_) internal pure returns (int256) {
+        return (x_ * 1e18) / y_;
+    }
+
     function sqrt(uint256 y) internal pure returns (uint256 z) {
         y = y * 1e18;
         if (y > 3) {
@@ -517,6 +648,7 @@ function bubbleDown(uint16 idx) internal {
             z = 1;
         }
     }
+
     function sqrt2(uint256 y) internal pure returns (uint256 z) {
         if (y > 3) {
             z = y;
@@ -529,9 +661,17 @@ function bubbleDown(uint16 idx) internal {
             z = 1;
         }
     }
-    function abs_(int256 x_) internal pure returns (uint256) {return uint256(x_ >= 0 ? x_ : -x_);}
-    function abs(int256 x_) internal pure returns (int256) {return int256(x_ >= 0 ? x_ : -x_);}
+
+    function abs_(int256 x_) internal pure returns (uint256) {
+        return uint256(x_ >= 0 ? x_ : -x_);
+    }
+
+    function abs(int256 x_) internal pure returns (int256) {
+        return int256(x_ >= 0 ? x_ : -x_);
+    }
+
     function sub(uint256 x_, int256 y_) internal pure returns (uint256) {
         require(y_ >= 0 ? x_ >= uint256(y_) : true, "Underflow in subtraction");
-        return x_ >= uint256(y_) ? x_ - uint256(y_) : 0;}
+        return x_ >= uint256(y_) ? x_ - uint256(y_) : 0;
+    }
 }
