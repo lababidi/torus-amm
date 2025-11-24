@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: UNLICENSED
-pragma solidity ^0.8.13;
+pragma solidity ^0.8.30;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
@@ -22,15 +22,24 @@ contract TorusRedemption is ERC4626 {
 }
 
 contract Torus {
+
+    struct Token {
+        address a;
+        uint256 liq;
+        uint256 min;
+        uint16 decimals;
+        uint256 liqNorm;
+    }
+
     using SafeERC20 for IERC20;
     uint24 public n;
     uint256 public lsum;
     uint256 public lmax;
     mapping(address => uint16) public pos; // position of token in tokens array
-    address[] public tokens;
     uint16[] public order;
     uint16[] public orderPos;
 
+    address[] public tokens;
     uint256[] public liquidity;
     uint256 public minLiquidity;
     uint16[] public decimals;
@@ -329,58 +338,6 @@ contract Torus {
         lmax = liquidity[order[0]];
     }
 
-    function calculateA() internal {
-        int256[][] memory signs = getAllSigns();
-        uint8 combinations = uint8(2 ** n);
-        for (uint8 c = 0; c < combinations; c++) {
-            int256[] memory sigma = signs[c];
-            if (checkForSolution(sigma)) {
-                int256 w = _newton(sigma);
-                for (uint j = 0; j < n; j++) {
-                    // console.log("liquidity[j]", liquidity[j]);
-                    // console.log("liquidityNorm[j]", liquidityNorm[j]);
-                    a[j] = .5e18 + (sigma[j] * sTerm(w, j)) / 2;
-                    console.log("a[j]", a[j]);
-                }
-                return;
-            }
-        }
-    }
-
-    function checkForSolution(
-        int256[] memory signs
-    ) internal view returns (bool) {
-        int256 s = 0;
-        int256 prev = 0;
-        int256 nHalf = int256(int24(n)) * .5e18;
-        for (int w = 1e18; w > 0; w -= 1e17) {
-            s = 0;
-            for (uint i = 0; i < n; i++) {
-                s += int256(signs[i]) * sTerm(w, i);
-                // console.log("signs[i]", signs[i]);
-                // console.log("sTerm", sTerm(w, i));
-            }
-            s = nHalf - 1e18 - mul(int256(lsum), w) / 4 - s / 2;
-            // console.log("w", w);
-            // console.log("prev", prev);
-            // console.log("s", s);
-            if (prev > 0 && s < 0) {
-                console.log(signs[0]);
-                console.log(signs[1]);
-                return true;
-            } else if (prev < 0 && s > 0) {
-                console.log("w", w);
-                console.log("prev", prev);
-                console.log("s", s);
-                console.log(signs[0]);
-                console.log(signs[1]);
-                return true;
-            }
-            prev = s > 0 ? int8(1) : int8(-1);
-        }
-        return false;
-    }
-
     // Price between tokenA and tokenB depends on the ratio of [(a-x)/a] /[(b-y)/b].
     // This is from the partial derivative of the invariant function.
     function getPrice(
@@ -404,123 +361,6 @@ contract Torus {
             int256(
                 sqrt2(1e36 - mul2(uint256(w * 1e18), liquidityNorm[i] * 1e18))
             );
-    }
-
-    function _newton(int256[] memory signs) internal view returns (int256 w) {
-        // now bisect to find w
-        // log the liquidityNorm
-        for (uint i = 0; i < n; i++) {
-            console.log("liquidityNorm[i]", liquidityNorm[i]);
-        }
-        console.log("lsum", lsum);
-        console.log("n", n);
-        int24 steps = 0;
-        w = 1e18 - 1e10;
-        int256 nHalf = int256(int24(n)) * .5e18;
-        int256 lsum_ = int256(lsum);
-        int256 newton = 1e18;
-        int256[] memory s = new int256[](n);
-        int256[] memory s_ = new int256[](n);
-        while (abs(newton) > 1e6) {
-            require(w <= 1e18, "w out of bounds, w > 1e18");
-            int256 fx_ = 0;
-            int256 dfx_ = 0;
-            // int256 dffx = 0;
-            for (uint i = 0; i < n; i++) {
-                s[i] = sTerm(w, i);
-                s_[i] = s[i] * signs[i];
-                fx_ += s_[i];
-                dfx_ += div(int256(liquidityNorm[i]), s_[i]);
-                // dffx += div(sq(int256(liquidityNorm[i])), cube(s_[i]));
-                // console.log("dfx term", div(int256(liquidityNorm[i]), s_[i]));
-                // console.log("s_[i]", s_[i]);
-                // console.log("signs[i]", signs[i]);
-            }
-            // console.log("sSum", sSum);
-            int256 fx = nHalf - mul(w, lsum_) / 4 - fx_ / 2 - 1e18;
-            int256 dfx = -lsum_ / 4 + dfx_ / 4;
-            // dffx = -dffx/8;
-            newton = div(fx, dfx);
-            // newton = div(mul(fx, dfx), sq(dfx) - mul(fx, dffx)/2);
-            console.log("fx", fx);
-            console.log("dfx", dfx);
-            // console.log("dffx", dffx);
-            console.log("newton", newton);
-
-            console.log("w before", w);
-            w = w - newton;
-            if (w > 1e18) {
-                w = 1e18 - 1e3;
-            } else if (w < 0) {
-                w = 1e3;
-            }
-            steps += 1;
-            // console.log("w", w);
-        }
-        console.log("steps", steps);
-    }
-
-    function getAllSigns() public view returns (int256[][] memory signs) {
-        uint256 combinations = 2 ** n;
-        signs = new int256[][](combinations);
-        for (uint256 c = 0; c < combinations; c++) {
-            signs[c] = new int256[](n);
-            for (uint256 i = 0; i < n; i++) {
-                if ((c & (1 << i)) != 0) {
-                    signs[c][i] = 1;
-                } else {
-                    signs[c][i] = -1;
-                }
-            }
-        }
-    }
-
-    function getSigns() internal view returns (int8[] memory signs) {
-        int256[] memory r = new int256[](n);
-        signs = new int8[](n);
-        for (uint i = 0; i < n; i++) {
-            r[i] = int256(sqrt(1e18 - liquidityNorm[i]));
-        }
-        int256 target = int256(lsum) - int64(1e18 * n) / 2 + 1e18;
-        int256 current = 0;
-        for (int24 i = int24(n - 1); i >= 0; i--) {
-            uint16 o = order[uint24(i)];
-            if (
-                abs(target - (current + r[o])) < abs(target - (current - r[o]))
-            ) {
-                current += r[o];
-                signs[o] = 1;
-            } else {
-                current -= r[o];
-                signs[o] = -1;
-            }
-            // console.log("i", i);
-            // console.log("o", o);
-            // console.log("current", current);
-            // console.log("target", target);
-            // console.log("r[o]", r[o]);
-            // console.log("signs[o]", signs[o]);
-        }
-    }
-
-    function calculateSwap(uint256 amountIn, uint256 kBound) public pure returns (uint256) {
-        // placeholder
-        uint256 sumX = 0;
-        uint256 sumx2 = 0;
-        uint256 n_ = 2;
-        for (uint256 i = 0; i < n_; i++) {
-            uint256 xi = 1e18; // placeholder
-            sumX += xi;
-            sumx2 += xi * xi;
-        }
-        uint256 rInt = 0;
-        uint256 sqrtN = 0;
-        uint256 z = sumX/n_ - kBound - rInt * sqrtN;
-        uint256 s = 0;
-        uint256 x2y2 = (sumx2 - div(sq(sumX), n_));
-        uint256 f = sq(x2y2 + sq(z) + sq(s) - sq(rInt)) - 4*mul(sq(s), x2y2);
-        uint256 df = f;
-        return df;
     }
 
     function swap(
