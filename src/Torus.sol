@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: UNLICENSED
-pragma solidity ^0.8.30;
+pragma solidity ^0.8.29;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
@@ -11,18 +11,16 @@ import {console} from "forge-std/console.sol";
 contract TorusRedemption is ERC4626 {
     Torus public torus;
 
-    constructor(
-        address underlying,
-        string memory name,
-        string memory symbol
-    ) ERC4626(IERC20(underlying)) ERC20(name, symbol) {
+    constructor(address underlying, string memory name, string memory symbol)
+        ERC4626(IERC20(underlying))
+        ERC20(name, symbol)
+    {
         torus = Torus(msg.sender);
         // Additional initialization if needed
     }
 }
 
 contract Torus {
-
     struct Token {
         address a;
         uint256 liq;
@@ -32,6 +30,7 @@ contract Torus {
     }
 
     using SafeERC20 for IERC20;
+
     uint24 public n;
     uint256 public lsum;
     uint256 public lmax;
@@ -57,6 +56,7 @@ contract Torus {
         require(supported[token], "Token not supported");
         _;
     }
+
     modifier validTokens(address token1, address token2) {
         require(token1 != address(0), "Invalid token address");
         require(supported[token1], "Token not supported");
@@ -64,12 +64,14 @@ contract Torus {
         require(supported[token2], "Token not supported");
         _;
     }
+
     modifier liquidToken(address token) {
         require(token != address(0), "Invalid token address");
         require(supported[token], "Token not supported");
         require(minSurpassed[token], "Minimum liquidity not surpassed");
         _;
     }
+
     modifier onlyOwner() {
         require(msg.sender == owner, "Only owner can call this function");
         _;
@@ -108,7 +110,7 @@ contract Torus {
     function getTokens() public view returns (address[] memory activeTokens) {
         activeTokens = new address[](tokens.length);
         uint256 count = 0;
-        for (uint i = 0; i < tokens.length; i++) {
+        for (uint256 i = 0; i < tokens.length; i++) {
             if (supported[tokens[i]] && minSurpassed[tokens[i]]) {
                 activeTokens[count] = tokens[i];
                 count++;
@@ -128,10 +130,7 @@ contract Torus {
         return inc ? i + 1 : i - 1;
     }
 
-    function calcLiq(
-        uint256 amount,
-        uint16 decimal
-    ) internal pure returns (uint256 liq) {
+    function calcLiq(uint256 amount, uint16 decimal) internal pure returns (uint256 liq) {
         if (18 > decimal) {
             liq = amount * (10 ** uint16(18 - decimal));
         } else if (18 < decimal) {
@@ -141,10 +140,7 @@ contract Torus {
         }
     }
 
-    function calcTransfer(
-        uint256 liq,
-        uint16 decimal
-    ) internal pure returns (uint256 amount) {
+    function calcTransfer(uint256 liq, uint16 decimal) internal pure returns (uint256 amount) {
         if (18 > decimal) {
             amount = liq / (10 ** uint16(18 - decimal));
         } else if (18 < decimal) {
@@ -154,10 +150,7 @@ contract Torus {
         }
     }
 
-    function calcLiq(
-        int256 amount,
-        uint16 decimal
-    ) internal pure returns (int256 liq) {
+    function calcLiq(int256 amount, uint16 decimal) internal pure returns (int256 liq) {
         if (18 > decimal) {
             liq = amount * int256(10 ** (18 - decimal));
         } else if (18 < decimal) {
@@ -167,10 +160,7 @@ contract Torus {
         }
     }
 
-    function calcTransfer(
-        int256 liq,
-        uint16 decimal
-    ) internal pure returns (int256 amount) {
+    function calcTransfer(int256 liq, uint16 decimal) internal pure returns (int256 amount) {
         if (18 > decimal) {
             amount = liq / int256(10 ** (18 - decimal));
         } else if (18 < decimal) {
@@ -195,28 +185,19 @@ contract Torus {
         calculateA();
     }
 
-    function addLiquidity(
-        address token,
-        uint128 amount
-    ) public validToken(token) {
+    function addLiquidity(address token, uint128 amount) public validToken(token) {
         IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
         modLiquidity(token, int128(amount));
     }
 
     // This will be a permit2 version later
-    function addLiquidity(
-        address token,
-        uint256 amount
-    ) public validToken(token) {
+    function addLiquidity(address token, uint256 amount) public validToken(token) {
         IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
         modLiquidity(token, int256(amount));
     }
 
     // This will be a permit2 version later
-    function modLiquidity(
-        address token,
-        int256 amount
-    ) public validToken(token) {
+    function modLiquidity(address token, int256 amount) public validToken(token) {
         uint16 i = pos[token];
         int256 liq = int256(calcLiq(amount, decimals[i]));
         bool remove = amount < 0;
@@ -228,8 +209,9 @@ contract Torus {
         bubble(orderPos[i], remove);
         updateTotal();
         calculateA();
-        if (remove)
+        if (remove) {
             require(liquidity[i] >= abs_(liq), "Insufficient liquidity");
+        }
         IERC20(token).safeTransferFrom(from, to, abs_(amount));
     }
 
@@ -340,66 +322,47 @@ contract Torus {
 
     // Price between tokenA and tokenB depends on the ratio of [(a-x)/a] /[(b-y)/b].
     // This is from the partial derivative of the invariant function.
-    function getPrice(
-        address tokenA,
-        address tokenB
-    ) public view validToken(tokenA) validToken(tokenB) returns (int256) {
+    function getPrice(address tokenA, address tokenB)
+        public
+        view
+        validToken(tokenA)
+        validToken(tokenB)
+        returns (int256)
+    {
         uint16 i = pos[tokenA];
         uint16 j = pos[tokenB];
         int256 al = div(a[i], int256(liquidity[i]));
         int256 bl = div(a[j], int256(liquidity[j]));
 
-        return
-            div(
-                mul(al, (1e18 - mul(al, int256(x[i])))),
-                mul(bl, (1e18 - mul(bl, int256(x[j]))))
-            );
+        return div(mul(al, (1e18 - mul(al, int256(x[i])))), mul(bl, (1e18 - mul(bl, int256(x[j])))));
     }
 
     function sTerm(int256 w, uint256 i) internal view returns (int256) {
-        return
-            int256(
-                sqrt2(1e36 - mul2(uint256(w * 1e18), liquidityNorm[i] * 1e18))
-            );
+        return int256(sqrt2(1e36 - mul2(uint256(w * 1e18), liquidityNorm[i] * 1e18)));
     }
 
-    function swap(
-        address tokenOut,
-        address tokenIn,
-        uint256 amountIn
-    ) public validToken(tokenOut) validToken(tokenIn) {
+    function swap(address tokenOut, address tokenIn, uint256 amountIn)
+        public
+        validToken(tokenOut)
+        validToken(tokenIn)
+    {
         swap(tokenOut, tokenIn, amountIn, msg.sender);
     }
 
-    function swap(
-        address tokenOut,
-        address tokenIn,
-        uint256 swapAmountIn,
-        address to
-    ) public validToken(tokenOut) validToken(tokenIn) {
+    function swap(address tokenOut, address tokenIn, uint256 swapAmountIn, address to)
+        public
+        validToken(tokenOut)
+        validToken(tokenIn)
+    {
         uint16 i = pos[tokenIn];
         uint16 j = pos[tokenOut];
         uint256 amountIn = calcLiq(swapAmountIn, decimals[i]);
-        uint256 amountOut = uint256(
-            getSwapAmount(
-                amountIn,
-                a[i],
-                a[j],
-                liquidity[i],
-                liquidity[j],
-                x[i],
-                x[j]
-            )
-        );
+        uint256 amountOut = uint256(getSwapAmount(amountIn, a[i], a[j], liquidity[i], liquidity[j], x[i], x[j]));
         uint256 swapAmountOut = calcTransfer(amountOut, decimals[j]);
         require(x[j] >= amountOut, "Insufficient reserves for output token");
         x[i] += amountIn;
         x[j] -= amountOut;
-        IERC20(tokenOut).safeTransferFrom(
-            msg.sender,
-            address(this),
-            swapAmountIn
-        );
+        IERC20(tokenOut).safeTransferFrom(msg.sender, address(this), swapAmountIn);
         IERC20(tokenIn).safeTransfer(to, swapAmountOut);
     }
 
@@ -413,8 +376,7 @@ contract Torus {
         uint256 xo
     ) public pure returns (int256 amountOut) {
         // symmetric for out and in
-        int x2y2 = sq(1e18 - muldiv(xi, ai, liqIn)) +
-            sq(1e18 - muldiv(xo, ao, liqOut));
+        int256 x2y2 = sq(1e18 - muldiv(xi, ai, liqIn)) + sq(1e18 - muldiv(xo, ao, liqOut));
         int256 s_ = x2y2 - sq(1e18 - muldiv(xi + amountIn, ai, liqIn));
         amountOut = muldiv(liqOut, 1e18 - sqrt(uint256(s_)), ao);
     }
@@ -431,27 +393,15 @@ contract Torus {
         return mul(x_, sq(x_));
     }
 
-    function muldiv(
-        uint256 x_,
-        uint256 y_,
-        uint256 z_
-    ) internal pure returns (uint256) {
+    function muldiv(uint256 x_, uint256 y_, uint256 z_) internal pure returns (uint256) {
         return (x_ * y_) / z_;
     }
 
-    function muldiv(
-        uint256 x_,
-        int256 y_,
-        uint256 z_
-    ) internal pure returns (int256) {
+    function muldiv(uint256 x_, int256 y_, uint256 z_) internal pure returns (int256) {
         return (int256(x_) * y_) / int256(z_);
     }
 
-    function muldiv(
-        uint256 x_,
-        uint256 y_,
-        int256 z_
-    ) internal pure returns (int256) {
+    function muldiv(uint256 x_, uint256 y_, int256 z_) internal pure returns (int256) {
         return (int256(x_) * int256(y_)) / z_;
     }
 

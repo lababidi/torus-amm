@@ -5,7 +5,6 @@ import {Script, console} from "forge-std/Script.sol";
 import {Torus} from "../src/Torus.sol";
 
 contract CounterScript is Script {
-     
     Torus public torus;
 
     function setUp() public {}
