@@ -181,8 +181,6 @@ contract Torus {
             IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
             // mint redemption tokens todo
         }
-
-        calculateA();
     }
 
     function addLiquidity(address token, uint128 amount) public validToken(token) {
@@ -208,7 +206,6 @@ contract Torus {
         console.log("bubble");
         bubble(orderPos[i], remove);
         updateTotal();
-        calculateA();
         if (remove) {
             require(liquidity[i] >= abs_(liq), "Insufficient liquidity");
         }
