@@ -8,8 +8,17 @@ import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IER
 import {ERC4626} from "@openzeppelin/contracts/token/ERC20/extensions/ERC4626.sol";
 import {console} from "forge-std/console.sol";
 
-contract TorusRedemption is ERC4626 {
+interface IPermit2 {
+    function allowance(address from, address to) external view returns (uint256);
+
+    function transferFrom(address from, address to, uint256 amount, address token) external;
+}
+
+contract TorusVault is ERC4626 {
     Torus public torus;
+    using SafeERC20 for IERC20;
+
+    IERC20 private _asset;
 
     constructor(address underlying, string memory name, string memory symbol)
         ERC4626(IERC20(underlying))
@@ -18,14 +27,33 @@ contract TorusRedemption is ERC4626 {
         torus = Torus(msg.sender);
         // Additional initialization if needed
     }
+
+    function hold(uint256 amount) external {
+        require(msg.sender == address(torus), "Only Torus can call hold");
+        _asset.safeTransferFrom(msg.sender, address(this), amount);
+    }
+
+    function borrow(uint256 amount) external {
+        require(msg.sender == address(torus), "Only Torus can call borrow");
+        _asset.safeTransferFrom(address(this), msg.sender, amount);
+    }
 }
 
 contract Torus {
     struct Token {
-        uint256 liq;
-        uint256 min;
+        address adr;
         uint8 decimals;
-        uint256 x;
+        string name;
+        string symol;
+    }
+
+    struct TokenStatus {
+        Token token;
+        bool surpassed;
+        uint256 liquidity;
+        uint256 reserves;
+        TorusVault vault;
+        uint256 fees;
     }
 
     using SafeERC20 for IERC20;
@@ -33,19 +61,27 @@ contract Torus {
     uint24 public n;
     uint256[] public r; // global invariants - one for each slice in the tower of AMMs
     mapping(address => uint16) public pos; // position of token in tokens array
-    uint16[] public order;
-    uint16[] public orderPos;
 
-    address[] public tokens_;
     Token[] public tokens;
+    TokenStatus[][] public status;
     uint256[] public ticks; //not ordered
-    uint256[][] public liquidity; // first index is tick index
-    uint256[][] public x;
-    uint256[][] public fees;
-    address[][] public redemption;
-    uint16[] public redemptionPos;
     mapping(address => bool) public supported;
-    mapping(address => bool) public minSurpassed;
+    mapping(uint256 => bool) public validTicks;
+    mapping(address => bool) public activeVaults;
+    address[] public activeTokens;
+    uint256[] public liquidityBase; // minimum liquidity across all tokens for each tick
+
+    IPermit2 public constant PERMIT2 = IPermit2(0x000000000022D473030F116dDEE9F6B43aC78BA3);
+
+    modifier vaultOnly(address vault) {
+        require(activeVaults[vault], "Only vault can call this function");
+        _;
+    }
+
+    modifier validTick(uint16 tickid) {
+        require(tickid < ticks.length, "Invalid tick id");
+        _;
+    }
 
     modifier validToken(address token) {
         require(token != address(0), "Invalid token address");
@@ -61,12 +97,6 @@ contract Torus {
         _;
     }
 
-    modifier liquidToken(address token) {
-        require(token != address(0), "Invalid token address");
-        require(supported[token], "Token not supported");
-        require(minSurpassed[token], "Minimum liquidity not surpassed");
-        _;
-    }
 
     modifier onlyOwner() {
         require(msg.sender == owner, "Only owner can call this function");
@@ -80,268 +110,167 @@ contract Torus {
         ticks.push(tick);
         addToken(tokenA);
         addToken(tokenB);
-        // initLiquidity(100);
+        // status[0][0].vault.deposit(100, msg.sender);
+        // status[0][1].vault.deposit(100, msg.sender);
     }
+
+    function _transferFrom(address token, address from, address to, uint256 amount) internal {
+        if(IERC20(token).allowance(from, to) > amount){
+            IERC20(token).safeTransferFrom(from, to, amount);
+        } else if (PERMIT2.allowance(from, to) > amount){
+            PERMIT2.transferFrom(from, to, amount, token);
+        } else {
+            revert("Insufficient allowance");
+        }
+    }
+
+    function createVault(Token memory token, uint256 tickValue) internal returns (TorusVault) {
+        TorusVault vaultToken = new TorusVault(
+            token.adr,
+            string(abi.encodePacked("Torus ", token.name)),
+            string(abi.encodePacked("trs-", token.symol, tickValue))
+        );
+        return vaultToken;
+    }
+
 
     function addToken(address token) public onlyOwner {
         require(token != address(0), "Invalid token address");
-        require(ticks.length > 0, "Invalid token address");
+        require(ticks.length > 0, "No Ticks defined");
         
         supported[token] = true;
-        tokens_.push(token);
         pos[token] = uint16(n);
-        order.push(uint16(n));
-        orderPos.push(uint16(n));
         n += 1;
+
+        Token memory tokenInfo = Token({
+            adr: token,
+            decimals: uint8(IERC20Metadata(token).decimals()),
+            name: IERC20Metadata(token).name(),
+            symol: IERC20Metadata(token).symbol()
+        });
+
         for (uint256 i = 0; i < ticks.length; i++) {
-            liquidity[i].push(0);
-            x[i].push(0);
-            fees[i].push(0);
-
-            TorusRedemption redemptionToken = new TorusRedemption(
-                token,
-                string(abi.encodePacked("Torus ", ERC20(token).name())),
-                string(abi.encodePacked("trs-", ERC20(token).symbol(), ticks[i]))
+            status[i].push(
+                TokenStatus({
+                    token: tokenInfo,
+                    surpassed: false,
+                    liquidity: 0,
+                    reserves: 0,
+                    vault: createVault(tokenInfo, ticks[i]),
+                    fees: 0
+                })
             );
-            redemption[i].push(address(redemptionToken));
         }
-        uint8 decimals = IERC20Metadata(token).decimals();
-        // redemption.push();
-        tokens.push(
-            Token({
-                liq: 0,
-                min: 10**(6+decimals), // 100k units default minimum
-                decimals: decimals,
-                x: 0
-            })
-        );
+        tokens.push(tokenInfo);
     }
 
-    // function setMinLiquidity(uint256 min) public onlyOwner {
-    //     minLiquidity = min;
-    // }
 
-    function getTokens() public view returns (address[] memory activeTokens) {
-        activeTokens = new address[](tokens_.length);
-        uint256 count = 0;
-        for (uint256 i = 0; i < tokens_.length; i++) {
-            if (supported[tokens_[i]] && minSurpassed[tokens_[i]]) {
-                activeTokens[count] = tokens_[i];
-                count++;
-            }
-        }
-        // Resize the array to the number of active tokens
-        assembly {
-            mstore(activeTokens, count)
+    function addTick(uint256 tickValue) public onlyOwner {
+        ticks.push(tickValue);
+        status.push();
+        for (uint256 i = 0; i < tokens.length; i++) {
+            status[ticks.length - 1].push(
+                TokenStatus({
+                    token: tokens[i],
+                    surpassed: false,
+                    liquidity: 0,
+                    reserves: 0,
+                    vault: createVault(tokens[i], tickValue),
+                    fees: 0
+                })
+            );
         }
     }
 
-    function boolpm(bool b) internal pure returns (int8) {
-        return b ? int8(1) : int8(-1);
-    }
 
-    function incdec(bool inc, uint16 i) internal pure returns (uint16) {
-        return inc ? i + 1 : i - 1;
-    }
 
-    function calcLiq(uint256 amount, uint16 decimal) internal pure returns (uint256 liq) {
-        if (18 > decimal) {
-            liq = amount * (10 ** uint16(18 - decimal));
-        } else if (18 < decimal) {
-            liq = amount / (10 ** uint16(decimal - 18));
-        } else {
-            liq = amount;
-        }
-    }
-
-    function calcTransfer(uint256 liq, uint16 decimal) internal pure returns (uint256 amount) {
-        if (18 > decimal) {
-            amount = liq / (10 ** uint16(18 - decimal));
-        } else if (18 < decimal) {
-            amount = liq * (10 ** uint16(decimal - 18));
-        } else {
-            amount = liq;
-        }
-    }
-
-    function calcLiq(int256 amount, uint16 decimal) internal pure returns (int256 liq) {
-        if (18 > decimal) {
-            liq = amount * int256(10 ** (18 - decimal));
-        } else if (18 < decimal) {
-            liq = amount / int256(10 ** (decimal - 18));
-        } else {
-            liq = amount;
-        }
-    }
-
-    function calcTransfer(int256 liq, uint16 decimal) internal pure returns (int256 amount) {
-        if (18 > decimal) {
-            amount = liq / int256(10 ** (18 - decimal));
-        } else if (18 < decimal) {
-            amount = liq * int256(10 ** (decimal - 18));
-        } else {
-            amount = liq;
-        }
-    }
-
-    function initLiquidity(uint256 liq) public {
-        for (uint16 j = 0; j < ticks.length; j++){
-            for (uint16 i = 0; i < 2; i++) {
-                address token = tokens_[i];
-                uint256 amount = calcTransfer(liq, tokens[i].decimals);
-                liquidity[j][i] = liq;
-                x[j][i] = liq;
-                bubble(i, false);
-                // updateTotal();
-                IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
-                // mint redemption tokens todo
-            }
-        }
-    }
-
-    function addLiquidity(address token, uint128 amount, uint16 tickid) public validToken(token) {
-        IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
-        modLiquidity(token, int128(amount), tickid);
-    }
-
-    // This will be a permit2 version later
-    function addLiquidity(address token, uint256 amount, uint16 tickid) public validToken(token) {
-        IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
-        modLiquidity(token, int256(amount), tickid);
-    }
-
-    // This will be a permit2 version later
-    function modLiquidity(address token, int256 amount, uint16 tickid) public validToken(token) {
+    // Called by the vault to modify liquidity
+    function updateLiquidity(address token, int256 amount, uint16 tickid) 
+        public validToken(token) validTick(tickid) vaultOnly(msg.sender) {
         uint16 i = pos[token];
-        int256 liq = int256(calcLiq(amount, tokens[i].decimals));
-        bool remove = amount < 0;
-        address from = remove ? address(this) : msg.sender;
-        address to = remove ? msg.sender : address(this);
-        liquidity[tickid][i] = uint256(int256(liquidity[tickid][i]) + liq);
-        x[tickid][i] = uint256(int256(x[tickid][i]) + liq);
-        console.log("bubble");
-        bubble(orderPos[i], remove);
-        if (remove) {
-            require(liquidity[tickid][i] >= abs_(liq), "Insufficient liquidity");
-        }
-        IERC20(token).safeTransferFrom(from, to, abs_(amount));
-    }
+        int256 liq = tokenToCurrency(amount, tokens[i].decimals);
+        TokenStatus storage ts = status[tickid][i];
+        int256 prev = int256(ts.liquidity);
+        int256 prevRes = int256(ts.reserves);
 
-    // function updateTotal() public {
-    //     lsum = 0;
-    //     for (uint16 i = 0; i < n; i++) {
-    //         liquidityNorm[i] = div(liquidity[i], lmax);
-    //         console.log("liq[i]", liquidity[i]);
-    //         console.log("norm[i]", liquidityNorm[i]);
-    //         console.log("lmax", lmax);
-    //         lsum += liquidityNorm[i];
-    //         minSurpassed[tokens_[i]] = liquidity[i] > minLiquidity;
-    //     }
-    // }
-
-    function bubble2(uint16 idx, bool down, uint16 tickid) internal {
-        uint16 current = down ? idx + 1 : idx;
-        uint16 end = down ? uint16(order.length) : 0;
-        while (current < end) {
-            uint16 i = order[current];
-            uint16 j = order[current - 1];
-            if (liquidity[tickid][i] <= liquidity[tickid][j]) break;
-            order[current] = j; // swap a <-> b
-            order[current - 1] = i;
-            unchecked {
-                current = incdec(down, current);
+        ts.liquidity = uint256(prev + liq);
+        ts.reserves = uint256(prevRes + liq);
+        // Update minSurpassed
+        if (!ts.surpassed && ts.liquidity >= 1000e18) {
+            ts.surpassed = true;
+            // out of minSurpassed find smallest Liquidity
+            for (uint16 t = 0; t < ticks.length; t++) {
+                uint256 minLiq = type(uint256).max;
+                for (uint16 j = 0; j < tokens.length; j++) {
+                    TokenStatus storage st = status[t][j];
+                    if (st.surpassed && st.liquidity < minLiq) {
+                        minLiq = st.liquidity;
+                    }
+                }
+                liquidityBase[t] = minLiq;
             }
         }
-        // lmax = liquidity[order[0]];
     }
 
-    // Maintains `order` sorted by DESCENDING liquidity.
-    // `pos` is the current index of the token that changed liquidity.
-    // If `down == true`, its liquidity DECREASED → sink toward the end.
-    // If `down == false`, its liquidity INCREASED → rise toward the front.
-    function bubble(uint16 pos_, bool down, uint16 tickid) internal {
-        if (down) {
-            bubbleDown(pos_, tickid);
-        } else {
-            bubbleUp(pos_, tickid);
-        }
+
+    function getSwapAmount(
+        uint256 amountIn
+        // int256 ai,
+        // int256 ao,
+        // uint256 liqIn,
+        // uint256 liqOut,
+        // uint256 xi,
+        // uint256 xo
+    ) public pure returns (int256 amountOut) {
+        amountOut = int256(amountIn); // Placeholder logic
     }
 
-    // Bubble upward (liquidity increased)
-    // Keeps order sorted in DESCENDING liquidity
-    function bubbleUp(uint16 idx, uint16 tickid) internal {
-        while (idx > 0) {
-            uint16 above = order[idx - 1];
-            uint16 cur = order[idx];
-            console.log("cur", cur);
-            console.log("above", above);
-            if (liquidity[tickid][above] >= liquidity[tickid][cur]) break;
-            // swap
-            order[idx - 1] = cur;
-            order[idx] = above;
-            unchecked {
-                idx--;
-            }
-        }
-        // update all orderPos
-        for (uint16 i = 0; i < n; i++) {
-            orderPos[order[i]] = i;
-        }
-        // lmax = liquidity[order[0]];
+
+    function swap(address tokenOut, address tokenIn, uint256 swapAmountIn, address to)
+        public validToken(tokenOut) validToken(tokenIn) {
+
+        uint16 i = pos[tokenIn];
+        uint16 j = pos[tokenOut];
+        uint256 amountIn = tokenToCurrency(swapAmountIn, tokens[i].decimals);
+        uint256 amountOut = uint256(getSwapAmount(amountIn));
+        uint256 swapAmountOut = currencyToToken(amountOut, tokens[j].decimals);
+
+        _transferFrom(tokenIn, msg.sender, address(this), swapAmountIn);
+        status[0][i].vault.hold(swapAmountIn);
+        status[0][i].liquidity += amountIn;
+        status[0][i].reserves += amountIn;
+        
+        status[0][j].liquidity -= amountOut;
+        status[0][j].reserves -= amountOut;
+        status[0][j].vault.borrow(swapAmountOut);
+        _transferFrom(tokenOut, address(this), to, swapAmountOut);
+        // vault.borrow()
+        // vault.tempdeposit(amountIn, msg.sender);
     }
 
-    // Bubble downward (liquidity decreased)
-    // Keeps order sorted in DESCENDING liquidity
-    function bubbleDown(uint16 idx, uint16 tickid) internal {
-        while (idx + 1 < n) {
-            uint16 cur = order[idx];
-            uint16 below = order[idx + 1];
-            if (liquidity[tickid][cur] >= liquidity[tickid][below]) break;
-            // swap
-            order[idx] = below;
-            order[idx + 1] = cur;
-            unchecked {
-                idx++;
-            }
-        }
-        // update all orderPos
-        for (uint16 i = 0; i < n; i++) {
-            orderPos[order[i]] = i;
-        }
-        // lmax = liquidity[order[0]];
+    function swap(address tokenOut, address tokenIn, uint256 amountIn)
+        public validToken(tokenOut) validToken(tokenIn) {
+        swap(tokenOut, tokenIn, amountIn, msg.sender);
     }
 
-    function _bubbleUp(uint16 idx, uint16 tickid) internal {
-        // Move element at idx toward the front while it outranks its predecessor
-        uint16 current = idx;
-        uint16 end = 0;
-        while (current > end) {
-            uint16 i = order[current];
-            uint16 j = order[current - 1];
 
-            if (liquidity[tickid][i] <= liquidity[tickid][j]) break;
 
-            // swap a <-> b
-            order[current] = j;
-            order[current - 1] = i;
 
-            unchecked {
-                current = incdec(false, current);
-            }
-        }
-        // lmax = liquidity[order[0]];
-    }
 
-    function totalLiquidity(uint16 i) public view returns (uint256 totalLiq) {
+
+
+    function totalLiquidity(address token) public view returns (uint256 totalLiq) {
+        uint16 i = pos[token];
         for (uint16 tickid = 0; tickid < ticks.length; tickid++) {
-            totalLiq += liquidity[tickid][i];
+            totalLiq += status[tickid][i].liquidity;
         }
     }
 
 
-    function totalReserves(uint16 i) public view returns (uint256 totalRes) {
+    function totalReserves(address token) public view returns (uint256 totalRes) {
+        uint16 i = pos[token];
         for (uint16 tickid = 0; tickid < ticks.length; tickid++) {
-            totalRes += x[tickid][i];
+            totalRes += status[tickid][i].reserves;
         }
     }
 
@@ -356,55 +285,54 @@ contract Torus {
     {
         uint16 i = pos[tokenA];
         uint16 j = pos[tokenB];
-        int256 al = div(int256(r[i]), int256(totalLiquidity(i)));
-        int256 bl = div(int256(r[j]), int256(totalLiquidity(j)));
+        int256 al = div(int256(r[i]), int256(totalLiquidity(tokenA)));
+        int256 bl = div(int256(r[j]), int256(totalLiquidity(tokenB)));
 
-        return div(mul(al, (1e18 - mul(al, int256(totalReserves(i))))) , mul(bl, (1e18 - mul(bl, int256(totalReserves(j))))));
+        return div(mul(al, (1e18 - mul(al, int256(totalReserves(tokenA))))) , mul(bl, (1e18 - mul(bl, int256(totalReserves(tokenB))))));
     }
 
-    // function sTerm(int256 w, uint256 i) internal view returns (int256) {
-    //     return int256(sqrt2(1e36 - mul2(uint256(w * 1e18), liquidityNorm[i] * 1e18)));
-    // }
 
-    function swap(address tokenOut, address tokenIn, uint256 amountIn)
-        public
-        validToken(tokenOut)
-        validToken(tokenIn)
-    {
-        swap(tokenOut, tokenIn, amountIn, msg.sender);
+
+    function tokenToCurrency(uint256 amount, uint16 decimal) internal pure returns (uint256 liq) {
+        if (18 > decimal) {
+            liq = amount * (10 ** uint16(18 - decimal));
+        } else if (18 < decimal) {
+            liq = amount / (10 ** uint16(decimal - 18));
+        } else {
+            liq = amount;
+        }
     }
 
-    function swap(address tokenOut, address tokenIn, uint256 swapAmountIn, address to)
-        public
-        validToken(tokenOut)
-        validToken(tokenIn)
-    {
-        uint16 i = pos[tokenIn];
-        uint16 j = pos[tokenOut];
-        uint256 amountIn = calcLiq(swapAmountIn, tokens[i].decimals);
-        uint256 amountOut = uint256(getSwapAmount(amountIn, 0, 0, liquidity[i], liquidity[j], x[i], x[j]));
-        uint256 swapAmountOut = calcTransfer(amountOut, tokens[j].decimals);
-        require(x[j] >= amountOut, "Insufficient reserves for output token");
-        x[i] += amountIn;
-        x[j] -= amountOut;
-        IERC20(tokenOut).safeTransferFrom(msg.sender, address(this), swapAmountIn);
-        IERC20(tokenIn).safeTransfer(to, swapAmountOut);
+    function currencyToToken(uint256 liq, uint16 decimal) internal pure returns (uint256 amount) {
+        if (18 > decimal) {
+            amount = liq / (10 ** uint16(18 - decimal));
+        } else if (18 < decimal) {
+            amount = liq * (10 ** uint16(decimal - 18));
+        } else {
+            amount = liq;
+        }
     }
 
-    function getSwapAmount(
-        uint256 amountIn,
-        int256 ai,
-        int256 ao,
-        uint256 liqIn,
-        uint256 liqOut,
-        uint256 xi,
-        uint256 xo
-    ) public pure returns (int256 amountOut) {
-        // symmetric for out and in
-        int256 x2y2 = sq(1e18 - muldiv(xi, ai, liqIn)) + sq(1e18 - muldiv(xo, ao, liqOut));
-        int256 s_ = x2y2 - sq(1e18 - muldiv(xi + amountIn, ai, liqIn));
-        amountOut = muldiv(liqOut, 1e18 - sqrt(uint256(s_)), ao);
+    function tokenToCurrency(int256 amount, uint16 decimal) internal pure returns (int256 liq) {
+        if (18 > decimal) {
+            liq = amount * int256(10 ** (18 - decimal));
+        } else if (18 < decimal) {
+            liq = amount / int256(10 ** (decimal - 18));
+        } else {
+            liq = amount;
+        }
     }
+
+    function currencyToToken(int256 liq, uint16 decimal) internal pure returns (int256 amount) {
+        if (18 > decimal) {
+            amount = liq / int256(10 ** (18 - decimal));
+        } else if (18 < decimal) {
+            amount = liq * int256(10 ** (decimal - 18));
+        } else {
+            amount = liq;
+        }
+    }
+
 
     function sq(uint256 x_) internal pure returns (uint256) {
         return mul(x_, x_);
@@ -489,4 +417,12 @@ contract Torus {
         require(y_ >= 0 ? x_ >= uint256(y_) : true, "Underflow in subtraction");
         return x_ >= uint256(y_) ? x_ - uint256(y_) : 0;
     }
+    function boolpm(bool b) internal pure returns (int8) {
+        return b ? int8(1) : int8(-1);
+    }
+
+    function incdec(bool inc, uint16 i) internal pure returns (uint16) {
+        return inc ? i + 1 : i - 1;
+    }
+
 }

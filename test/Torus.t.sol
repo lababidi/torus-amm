@@ -32,10 +32,10 @@ contract TorusTest is Test {
     function setUp() public {
         tokenA = new TestTokenA();
         tokenB = new TestTokenB();
-        torus = new Torus(address(tokenA), address(tokenB));
+        torus = new Torus(address(tokenA), address(tokenB), .998e18);
         tokenA.approve(address(torus), type(uint256).max);
         tokenB.approve(address(torus), type(uint256).max);
-        torus.initLiquidity(100e18);
+        // torus.initLiquidity(100e18);
         // torus.modLiquidity(address(tokenA), int256(10_000));
         // torus.addLiquidity(address(tokenB), uint256(100_000));
     }
@@ -48,12 +48,12 @@ contract TorusTest is Test {
         TestToken tokenC = new TestToken("Test Token C", "TTC");
         tokenC.approve(address(torus), type(uint256).max);
         torus.addToken(address(tokenC));
-        torus.modLiquidity(address(tokenC), 80e18);
-        torus.modLiquidity(address(tokenA), 10e18);
+        // torus.modLiquidity(address(tokenC), 80e18);
+        // torus.modLiquidity(address(tokenA), 10e18);
 
-        console.log("a:", torus.a(0));
-        console.log("a:", torus.a(1));
-        console.log("a:", torus.a(2));
+        // console.log("a:", torus.status(0,0).liquidity);
+        // console.log("a:", torus.status(0,1).liquidity);
+        // console.log("a:", torus.status(0,2).liquidity);
         assertApproxEqAbs(torus.getPrice(address(tokenA), address(tokenB)), 1e18, 1e10);
         assertApproxEqAbs(torus.getPrice(address(tokenA), address(tokenC)), 1e18, 1e10);
         assertApproxEqAbs(torus.getPrice(address(tokenB), address(tokenC)), 1e18, 1e10);
@@ -69,11 +69,11 @@ contract TorusTest is Test {
         TestToken tokenC = new TestToken("Test Token C", "TTC");
         tokenC.approve(address(torus), type(uint256).max);
         torus.addToken(address(tokenC));
-        torus.modLiquidity(address(tokenA), 100e18);
-        torus.modLiquidity(address(tokenC), 100e18);
-        console.log("a:", torus.a(0));
-        console.log("a:", torus.a(1));
-        console.log("a:", torus.a(2));
+        // torus.modLiquidity(address(tokenA), 100e18);
+        // torus.modLiquidity(address(tokenC), 100e18);
+        // console.log("a:", torus.a(0));
+        // console.log("a:", torus.a(1));
+        // console.log("a:", torus.a(2));
     }
 
     // function testFuzz_SetNumber(uint256 x) public {
